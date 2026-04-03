@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🚌 Bus Delay Predictor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #050810;
+      --card: rgba(12,16,30,0.9);
+      --accent: #00f5d4;
+      --accent2: #ff6b6b;
+      --accent3: #ffd166;
+      --text: #f0f4ff;
+      --muted: rgba(240,244,255,0.5);
+      --border: rgba(255,255,255,0.07);
+      --glow: 0 0 40px rgba(0,245,212,0.15);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      font-family: 'DM Sans', sans-serif;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-x: hidden;
+      padding: 20px;
+    }
+
+    /* ── Animated background ── */
+    .bg-scene {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      overflow: hidden;
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.18;
+      animation: drift 12s ease-in-out infinite alternate;
+    }
+    .orb1 { width: 500px; height: 500px; background: #00f5d4; top: -100px; left: -100px; animation-delay: 0s; }
+    .orb2 { width: 400px; height: 400px; background: #6c63ff; bottom: -80px; right: -80px; animation-delay: -4s; }
+    .orb3 { width: 300px; height: 300px; background: #ff6b6b; top: 40%; left: 60%; animation-delay: -8s; }
+
+    @keyframes drift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(40px, 30px) scale(1.1); }
+    }
+
+    /* Grid lines */
+    .grid-lines {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(0,245,212,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,245,212,0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    /* Floating particles */
+    .particles { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+    .particle {
+      position: absolute;
+      width: 2px; height: 2px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: float-up linear infinite;
+      opacity: 0;
+    }
+    @keyframes float-up {
+      0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+      10%  { opacity: 0.6; }
+      90%  { opacity: 0.3; }
+      100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+    }
+
+    /* ── Card ── */
+    .card {
+      position: relative; z-index: 10;
+      width: min(560px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 44px 40px 40px;
+      backdrop-filter: blur(24px);
+      box-shadow: 0 0 0 1px rgba(0,245,212,0.06), 0 40px 80px rgba(0,0,0,0.6), var(--glow);
+      animation: card-in 0.8s cubic-bezier(.22,1,.36,1) both;
+    }
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(40px) scale(0.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Scan line across card */
+    .card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      border-radius: 28px 28px 0 0;
+      animation: scan 3s ease-in-out infinite;
+    }
+    @keyframes scan {
+      0%,100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* ── Header ── */
+    .header { margin-bottom: 36px; animation: fade-up 0.6s 0.2s both; }
+
+    .bus-icon {
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      width: 56px; height: 56px;
+      background: linear-gradient(135deg, rgba(0,245,212,0.15), rgba(108,99,255,0.15));
+      border: 1px solid rgba(0,245,212,0.2);
+      border-radius: 16px;
+      font-size: 1.8rem;
+      margin-bottom: 16px;
+      animation: pulse-icon 2s ease-in-out infinite;
+    }
+    @keyframes pulse-icon {
+      0%,100% { box-shadow: 0 0 0 0 rgba(0,245,212,0.3); }
+      50% { box-shadow: 0 0 0 12px rgba(0,245,212,0); }
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      background: linear-gradient(135deg, #f0f4ff 0%, var(--accent) 60%, #6c63ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      font-weight: 300;
+    }
+
+    /* ── Form Fields ── */
+    .field {
+      margin-bottom: 22px;
+      animation: fade-up 0.6s both;
+    }
+    .field:nth-child(1) { animation-delay: 0.3s; }
+    .field:nth-child(2) { animation-delay: 0.4s; }
+    .field:nth-child(3) { animation-delay: 0.5s; }
+
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .field-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .field-label::before {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 4px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    /* Select */
+    .select-wrap { position: relative; }
+    .select-wrap::after {
+      content: '▾';
+      position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
+      color: var(--accent); pointer-events: none;
+      font-size: 1.1rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 16px 44px 16px 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 1rem;
+      outline: none;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+    }
+    select:focus, select:hover {
+      border-color: rgba(0,245,212,0.4);
+      background: rgba(0,245,212,0.05);
+      box-shadow: 0 0 0 4px rgba(0,245,212,0.08);
+    }
+    select option { background: #0c1020; }
+
+    /* Toggle cards */
+    .toggle-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .toggle-card {
+      position: relative;
+      padding: 16px 18px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      overflow: hidden;
+    }
+    .toggle-card::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(0,245,212,0.1), rgba(108,99,255,0.05));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .toggle-card:hover { border-color: rgba(0,245,212,0.25); transform: translateY(-2px); }
+    .toggle-card:hover::before { opacity: 0.5; }
+
+    .toggle-card.active {
+      border-color: rgba(0,245,212,0.5);
+      background: rgba(0,245,212,0.07);
+      box-shadow: 0 0 20px rgba(0,245,212,0.1);
+    }
+    .toggle-card.active::before { opacity: 1; }
+
+    .toggle-card input { display: none; }
+
+    .toggle-label {
+      display: flex; align-items: center; justify-content: space-between;
+      pointer-events: none;
+    }
+    .toggle-name {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.01em;
+    }
+    .toggle-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .toggle-card.active .toggle-dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    /* ── Submit Button ── */
+    .btn-wrap { margin-top: 28px; animation: fade-up 0.6s 0.6s both; }
+
+    .submit-btn {
+      width: 100%;
+      padding: 18px;
+      border: 0;
+      border-radius: 16px;
+      font-family: 'Syne', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #020810;
+      background: linear-gradient(135deg, var(--accent) 0%, #6c63ff 100%);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.25s, filter 0.25s;
+    }
+    .submit-btn::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, #6c63ff, var(--accent));
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .submit-btn:hover { transform: translateY(-3px); filter: brightness(1.08); }
+    .submit-btn:hover::before { opacity: 1; }
+    .submit-btn:active { transform: translateY(0) scale(0.98); }
+
+    .submit-btn span { position: relative; z-index: 1; }
+
+    /* Ripple */
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.25);
+      transform: scale(0);
+      animation: ripple-anim 0.6s linear;
+      pointer-events: none;
+    }
+    @keyframes ripple-anim {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    /* ── Loading ── */
+    .loading-bar {
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), #6c63ff, var(--accent));
+      background-size: 200%;
+      border-radius: 2px;
+      margin-top: 16px;
+      display: none;
+      animation: shimmer 1s linear infinite;
+    }
+    .loading-bar.active { display: block; }
+    @keyframes shimmer {
+      from { background-position: 200% center; }
+      to   { background-position: -200% center; }
+    }
+
+    /* ── Result ── */
+    .result {
+      margin-top: 24px;
+      padding: 22px 22px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      display: none;
+      animation: result-in 0.5s cubic-bezier(.22,1,.36,1) both;
+      position: relative;
+      overflow: hidden;
+    }
+    .result.show { display: block; }
+
+    @keyframes result-in {
+      from { opacity: 0; transform: scale(0.96) translateY(10px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .result-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .result-label {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .result-delay {
+      font-family: 'Syne', sans-serif;
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .result-unit {
+      font-size: 1rem;
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
+    .badge {
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-family: 'Syne', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .badge.green  { background: rgba(0,245,150,0.12); color: #00f596; border: 1px solid rgba(0,245,150,0.25); }
+    .badge.yellow { background: rgba(255,209,102,0.12); color: var(--accent3); border: 1px solid rgba(255,209,102,0.25); }
+    .badge.red    { background: rgba(255,107,107,0.12); color: var(--accent2); border: 1px solid rgba(255,107,107,0.25); }
+
+    /* Result progress bar */
+    .result-bar-wrap {
+      height: 4px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .result-bar {
+      height: 100%;
+      border-radius: 4px;
+      width: 0;
+      transition: width 1s cubic-bezier(.22,1,.36,1);
+    }
+    .result-bar.green  { background: linear-gradient(90deg, #00f596, #00d4aa); }
+    .result-bar.yellow { background: linear-gradient(90deg, #ffd166, #ff9f43); }
+    .result-bar.red    { background: linear-gradient(90deg, #ff6b6b, #ee5a24); }
+
+    .result-note {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    /* ── Error ── */
+    .error-msg {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(255,107,107,0.08);
+      border: 1px solid rgba(255,107,107,0.2);
+      color: #ff8a8a;
+      font-size: 0.88rem;
+      display: none;
+    }
+    .error-msg.show { display: block; animation: fade-up 0.3s both; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 24px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      color: rgba(240,244,255,0.2);
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      animation: fade-up 0.6s 0.8s both;
+    }
+    .footer-dot {
+      width: 3px; height: 3px;
+      background: rgba(0,245,212,0.4);
+      border-radius: 50%;
+    }
+
+    /* Status indicator */
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 28px;
+      animation: fade-up 0.6s 0.15s both;
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%,100% { opacity: 1; box-shadow: 0 0 6px var(--accent); }
+      50% { opacity: 0.4; box-shadow: none; }
+    }
+    .status-text {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Background -->
+<div class="bg-scene">
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <div class="orb orb3"></div>
+</div>
+<div class="grid-lines"></div>
+<div class="particles" id="particles"></div>
+
+<!-- Card -->
+<main class="card">
+
+  <div class="status-row">
+    <div class="status-dot"></div>
+    <span class="status-text">ML MODEL ONLINE · RANDOM FOREST</span>
+  </div>
+
+  <div class="header">
+    <div class="bus-icon">🚌</div>
+    <h1>Bus Delay<br>Predictor</h1>
+    <p class="subtitle">Real-time delay estimation using machine learning — powered by weather & traffic signals.</p>
+  </div>
+
+  <form id="predictForm" autocomplete="off">
+
+    <div class="field">
+      <div class="field-label">Weather Condition</div>
+      <div class="select-wrap">
+        <select id="weather" name="weather_condition" required>
+          <option value="Sunny">☀️ Sunny</option>
+          <option value="Rainy">🌧️ Rainy</option>
+          <option value="Cloudy">☁️ Cloudy</option>
+          <option value="Foggy">🌫️ Foggy</option>
+          <option value="Windy">💨 Windy</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">Holiday</div>
+      <div class="toggle-group">
+        <label class="toggle-card active" id="hol-yes">
+          <input type="radio" name="holiday" value="1" checked>
+          <div class="toggle-label">
+            <span class="toggle-name">🎉 Yes</span>
+            <span class="toggle-dot"></span>
+          </div>
+        </label>
+        <label class="toggle-card" id="hol-no">
+          <input type="radio" name="holiday" value="0">
+          <div class="toggle-label">
+            <span class="toggle-name">📅 No</span>
+            <span class="toggle-dot"></span>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">Peak Hour</div>
+      <div class="toggle-group">
+        <label class="toggle-card active" id="peak-yes">
+          <input type="radio" name="peak_hour" value="1" checked>
+          <div class="toggle-label">
+            <span class="toggle-name">🔥 Yes</span>
+            <span class="toggle-dot"></span>
+          </div>
+        </label>
+        <label class="toggle-card" id="peak-no">
+          <input type="radio" name="peak_hour" value="0">
+          <div class="toggle-label">
+            <span class="toggle-name">🌙 No</span>
+            <span class="toggle-dot"></span>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-wrap">
+      <button type="submit" class="submit-btn" id="submitBtn">
+        <span id="btnText">⚡ Predict Delay</span>
+      </button>
+      <div class="loading-bar" id="loadingBar"></div>
+    </div>
+
+  </form>
+
+  <div class="result" id="result">
+    <div class="result-top">
+      <div>
+        <div class="result-label">Estimated Delay</div>
+        <div class="result-delay" id="resultDelay">
+          — <span class="result-unit">min</span>
+        </div>
+      </div>
+      <div class="badge" id="resultBadge"></div>
+    </div>
+    <div class="result-bar-wrap">
+      <div class="result-bar" id="resultBar"></div>
+    </div>
+    <div class="result-note" id="resultNote"></div>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <div class="footer">
+    <span>Flask</span><span class="footer-dot"></span>
+    <span>Random Forest</span><span class="footer-dot"></span>
+    <span>scikit-learn</span>
+  </div>
+
+</main>
+
+<script>
+  /* ── Particles ── */
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 25; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.cssText = `
+      left: ${Math.random() * 100}%;
+      width: ${Math.random() * 3 + 1}px;
+      height: ${Math.random() * 3 + 1}px;
+      animation-duration: ${Math.random() * 10 + 8}s;
+      animation-delay: ${Math.random() * 10}s;
+    `;
+    container.appendChild(p);
+  }
+
+  /* ── Toggle cards ── */
+  document.querySelectorAll('.toggle-group').forEach(group => {
+    group.querySelectorAll('.toggle-card').forEach(card => {
+      card.addEventListener('click', () => {
+        group.querySelectorAll('.toggle-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        card.querySelector('input').checked = true;
+      });
+    });
+  });
+
+  /* ── Ripple ── */
+  document.getElementById('submitBtn').addEventListener('click', function(e) {
+    const r = document.createElement('span');
+    r.className = 'ripple';
+    const rect = this.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    r.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX-rect.left-size/2}px;top:${e.clientY-rect.top-size/2}px`;
+    this.appendChild(r);
+    setTimeout(() => r.remove(), 600);
+  });
+
+  /* ── Form submit ── */
+  const form     = document.getElementById('predictForm');
+  const btnText  = document.getElementById('btnText');
+  const loadBar  = document.getElementById('loadingBar');
+  const resultEl = document.getElementById('result');
+  const delayEl  = document.getElementById('resultDelay');
+  const badgeEl  = document.getElementById('resultBadge');
+  const barEl    = document.getElementById('resultBar');
+  const noteEl   = document.getElementById('resultNote');
+  const errorEl  = document.getElementById('errorMsg');
+
+  function showError(msg) {
+    errorEl.textContent = '⚠️ ' + msg;
+    errorEl.classList.add('show');
+    resultEl.classList.remove('show');
+  }
+  function hideError() { errorEl.classList.remove('show'); }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+
+    btnText.textContent = '⏳ Analyzing...';
+    loadBar.classList.add('active');
+    resultEl.classList.remove('show');
+
+    const payload = {
+      weather_condition: form.weather_condition.value,
+      holiday: form.holiday.value,
+      peak_hour: form.peak_hour.value
+    };
+
+    try {
+      const res  = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (!res.ok) { showError(data.error || 'Prediction failed.'); return; }
+
+      const delay = Number(data.predicted_delay);
+      const isGreen  = delay < 5;
+      const isYellow = delay >= 5 && delay <= 15;
+      const cls      = isGreen ? 'green' : isYellow ? 'yellow' : 'red';
+
+      delayEl.innerHTML = `${delay.toFixed(1)}<span class="result-unit"> min</span>`;
+      badgeEl.textContent = isGreen ? '✅ On Time' : isYellow ? '⚠️ Moderate' : '🚨 Heavy';
+      badgeEl.className = `badge ${cls}`;
+      barEl.className   = `result-bar ${cls}`;
+      noteEl.textContent = isGreen
+        ? 'Expected on time — enjoy your journey!'
+        : isYellow
+        ? 'Minor delay — plan a few extra minutes.'
+        : 'Significant delay — consider an alternate route.';
+
+      resultEl.classList.add('show');
+      setTimeout(() => {
+        const pct = Math.min((delay / 30) * 100, 100);
+        barEl.style.width = pct + '%';
+      }, 100);
+
+    } catch (err) {
+      showError('Cannot reach server. Make sure app.py is running on port 5000.');
+    } finally {
+      btnText.textContent = '⚡ Predict Delay';
+      loadBar.classList.remove('active');
+    }
+  });
+</script>
+</body>
+</html>
